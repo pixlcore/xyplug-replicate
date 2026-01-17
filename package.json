@@ -1,0 +1,27 @@
+{
+	"name": "xyplug-replicate",
+	"version": "1.0.0",
+	"private": true,
+	"description": "Replicate image generation plugin for the xyOps workflow automation system.",
+	"author": "Joseph Huckaby <jhuckaby@pixlcore.com>",
+	"homepage": "https://github.com/pixlcore/xyplug-replicate",
+	"license": "MIT",
+	"type": "module",
+	"bin": {
+		"xyplug-replicate": "index.js"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/pixlcore/xyplug-replicate"
+	},
+	"bugs": {
+		"url": "https://github.com/pixlcore/xyplug-replicate/issues"
+	},
+	"keywords": [
+		"xyops",
+		"replicate",
+		"image",
+		"ai"
+	],
+	"dependencies": {}
+}

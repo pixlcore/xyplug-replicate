@@ -6,8 +6,8 @@
 		{
 			"type": "plugin",
 			"data": {
-				"id": "pmr8d6k1replicate",
-				"title": "Replicate AI Generation",
+				"id": "pmkj64pgzwitdkyxe",
+				"title": "Replicate AI",
 				"enabled": true,
 				"type": "event",
 				"command": "npx -y github:pixlcore/xyplug-replicate#v1.0.0",
@@ -26,7 +26,7 @@
 								{
 									"id": "image",
 									"title": "Generate Images",
-									"description": "Generate one or more images from a prompt.",
+									"description": "Generate one or more images from a prompt, optionally using reference images.",
 									"fields": [
 										{
 											"id": "model",

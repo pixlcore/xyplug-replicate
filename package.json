@@ -1,6 +1,6 @@
 {
 	"name": "xyplug-replicate",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"private": true,
 	"description": "Replicate media generation plugin for the xyOps workflow automation system.",
 	"author": "Joseph Huckaby <jhuckaby@pixlcore.com>",

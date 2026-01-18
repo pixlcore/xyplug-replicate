@@ -8,7 +8,7 @@ import { basename } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 const API_BASE = "https://api.replicate.com/v1";
-const DEFAULT_WAIT_SECONDS = 5;
+const DEFAULT_WAIT_SECONDS = 1;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const DEFAULT_TIMEOUT_MS = 300000;
 
@@ -284,6 +284,7 @@ async function uploadFileToReplicate(filePath, apiKey) {
 	const contentType = contentTypeFromFilename(filename);
 	const form = new FormData();
 	form.append("content", new Blob([buffer], { type: contentType }), filename);
+	console.log("Uploading file to replicate: " + filename);
 
 	const payload = await requestJson(`${API_BASE}/files`, {
 		method: "POST",
@@ -408,6 +409,7 @@ async function downloadDataUrl(url, filenamePrefix, index) {
 async function downloadFile(url, apiKey, filenamePrefix, index) {
 	if (url.startsWith("data:")) return downloadDataUrl(url, filenamePrefix, index);
 
+	console.log("Downloading file: " + url);
 	let response;
 	try {
 		response = await fetch(url, {
@@ -439,6 +441,7 @@ async function main() {
 	const job = await readJob();
 	const params = job.params || {};
 	const tool = params.tool ? String(params.tool) : "image";
+	console.log("Starting up...");
 
 	const apiKey = process.env.REPLICATE_API_TOKEN;
 	if (!apiKey) fail("env", "Missing Replicate API token. Set REPLICATE_API_TOKEN.");
@@ -480,7 +483,8 @@ async function main() {
 		Prefer: `wait=${waitSeconds}`
 	};
 	if (cancelAfter) headers["Cancel-After"] = cancelAfter;
-
+	
+	console.log(`Sending request to replicate: ${API_BASE}/predictions`);
 	const prediction = await requestJson(`${API_BASE}/predictions`, {
 		method: "POST",
 		headers,
@@ -488,7 +492,8 @@ async function main() {
 	});
 
 	writeJson({ xy: 1, progress: 0.1 });
-
+	
+	console.log("Waiting for completion...");
 	const finalPrediction = await waitForCompletion(prediction, {
 		tool,
 		apiKey,
@@ -502,6 +507,7 @@ async function main() {
 	}
 
 	writeJson({ xy: 1, progress: 0.9 });
+	console.log("Downloading output files...");
 
 	const filenamePrefix = `replicate-${finalPrediction.id}`;
 	const files = [];
@@ -510,6 +516,7 @@ async function main() {
 		files.push(filename);
 	}
 
+	console.log("Complete.");
 	writeJson({
 		xy: 1,
 		code: 0,

@@ -10,7 +10,7 @@
 				"title": "Replicate AI",
 				"enabled": true,
 				"type": "event",
-				"command": "npx -y github:pixlcore/xyplug-replicate#v1.0.0",
+				"command": "npx -y github:pixlcore/xyplug-replicate#v1.0.1",
 				"script": "",
 				"kill": "parent",
 				"notes": "Generate images, video, or audio using Replicate.com and attach the files to the job output.",

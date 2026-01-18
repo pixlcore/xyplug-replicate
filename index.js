@@ -3,7 +3,8 @@
 // xyOps Replicate image generation plugin
 // Sends prompt + inputs to Replicate, polls for completion, and downloads output files.
 
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { basename } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 const API_BASE = "https://api.replicate.com/v1";
@@ -110,6 +111,28 @@ function extensionFromUrl(url) {
 	return match ? match[1].toLowerCase() : "bin";
 }
 
+function contentTypeFromFilename(filename) {
+	const ext = String(filename).toLowerCase().match(/\.([a-z0-9]+)$/);
+	switch (ext ? ext[1] : "") {
+		case "png":
+			return "image/png";
+		case "jpg":
+		case "jpeg":
+			return "image/jpeg";
+		case "webp":
+			return "image/webp";
+		case "gif":
+			return "image/gif";
+		case "tif":
+		case "tiff":
+			return "image/tiff";
+		case "bmp":
+			return "image/bmp";
+		default:
+			return "application/octet-stream";
+	}
+}
+
 async function requestJson(url, options) {
 	let response;
 	try {
@@ -136,6 +159,81 @@ async function requestJson(url, options) {
 	}
 
 	return payload || {};
+}
+
+function resolveUploadedFileUrl(payload) {
+	const candidates = [
+		payload?.urls?.download,
+		payload?.urls?.get,
+		payload?.url,
+		payload?.download_url,
+		payload?.href,
+		payload?.file
+	];
+
+	for (const candidate of candidates) {
+		if (looksLikeUrl(candidate)) return candidate.trim();
+	}
+
+	if (payload?.id) return `${API_BASE}/files/${payload.id}`;
+	return "";
+}
+
+async function uploadFileToReplicate(filePath, apiKey) {
+	const filename = basename(filePath);
+	let buffer;
+	try {
+		buffer = await readFile(filePath);
+	}
+	catch (err) {
+		fail("upload", `Failed to read input file '${filePath}': ${err.message}`);
+	}
+
+	const contentType = contentTypeFromFilename(filename);
+	const form = new FormData();
+	form.append("content", new Blob([buffer], { type: contentType }), filename);
+
+	const payload = await requestJson(`${API_BASE}/files`, {
+		method: "POST",
+		headers: {
+			Authorization: `Token ${apiKey}`
+		},
+		body: form
+	});
+
+	const url = resolveUploadedFileUrl(payload);
+	if (!url) fail("upload", "Replicate file upload did not return a usable URL.");
+	return url;
+}
+
+function toArray(value) {
+	if (Array.isArray(value)) return value;
+	if (value === undefined || value === null || value === "") return [];
+	return [value];
+}
+
+function mergeImageInputs(input, imageUrls) {
+	if (!imageUrls.length) return;
+
+	if (Object.prototype.hasOwnProperty.call(input, "image_input")) {
+		input.image_input = toArray(input.image_input).concat(imageUrls);
+		return;
+	}
+
+	if (Object.prototype.hasOwnProperty.call(input, "image")) {
+		if (Array.isArray(input.image)) {
+			input.image = input.image.concat(imageUrls);
+		}
+		else if (!input.image && imageUrls.length === 1) {
+			input.image = imageUrls[0];
+		}
+		else {
+			input.image_input = imageUrls;
+		}
+		return;
+	}
+
+	input.image_input = imageUrls;
 }
 
 async function waitForCompletion(prediction, options) {
@@ -245,8 +343,21 @@ async function downloadFile(url, apiKey, filenamePrefix, index) {
 	const cancelAfter = params.cancel_after ? String(params.cancel_after).trim() : "";
 
 	const input = buildInput({ ...params, prompt });
+	const inputFiles = Array.isArray(job.input?.files) ? job.input.files : [];
 
 	writeJson({ xy: 1, progress: 0.05 });
+
+	if (inputFiles.length) {
+		const imageUrls = [];
+		for (let i = 0; i < inputFiles.length; i++) {
+			const entry = inputFiles[i];
+			if (!entry || !entry.filename) continue;
+			const filePath = String(entry.filename);
+			const url = await uploadFileToReplicate(filePath, apiKey);
+			imageUrls.push(url);
+		}
+		mergeImageInputs(input, imageUrls);
+	}
 
 	const headers = {
 		Authorization: `Bearer ${apiKey}`,

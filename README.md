@@ -25,17 +25,12 @@ Replicate models vary, so this plugin provides common image fields plus an **Inp
 	- `owner/model:version_id`
 	- `version_id`
 - **Prompt**: Text prompt for the image.
-- **Negative Prompt**: Optional negative prompt.
 - **Width / Height**: Optional output size in pixels (if supported by the model).
-- **Aspect Ratio**: Optional aspect ratio string (if supported by the model).
 - **Num Outputs**: Optional number of images to generate.
 - **Seed**: Optional seed for reproducible results.
-- **Guidance / Steps**: Optional model tuning parameters.
 - **Input JSON**: Optional JSON object to merge into the model input. Prompt fields above take precedence.
-- **Wait Seconds**: How long to wait synchronously for the prediction (1-60 seconds).
-- **Poll Interval (ms)**: How often to poll Replicate after the initial request.
+- **Input Files**: If the job provides input files, the plugin uploads them to Replicate and adds them to `image_input` (or appends to an existing `image_input`).
 - **Timeout (ms)**: Overall timeout for the prediction.
-- **Cancel After**: Optional Replicate `Cancel-After` duration (e.g. `5m`, `120s`).
 
 ## Usage Example
 
@@ -48,8 +43,6 @@ Width: 1024
 Height: 1024
 Num Outputs: 2
 Seed: 12345
-Wait Seconds: 60
-Timeout (ms): 300000
 ```
 
 Model-specific inputs can be supplied using **Input JSON**:

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-// xyOps Replicate image generation plugin
+// xyOps Replicate media generation plugin
 // Sends prompt + inputs to Replicate, polls for completion, and downloads output files.
 
-import { readFile, writeFile } from "node:fs/promises";
+import { glob, readFile, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -12,16 +12,25 @@ const DEFAULT_WAIT_SECONDS = 5;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const DEFAULT_TIMEOUT_MS = 300000;
 
+let didExit = false;
+
 // Emit an XYWP message. If final, flush and exit.
 function writeJson(payload, exit = false) {
+	if (didExit) return;
 	const line = `${JSON.stringify(payload)}\n`;
-	if (exit) process.stdout.write(line, () => process.exit(0));
+	if (exit) {
+		didExit = true;
+		process.stdout.write(line, () => process.exit(0));
+	}
 	else process.stdout.write(line);
 }
 
 // Emit an error response and exit.
 function fail(code, description) {
 	writeJson({ xy: 1, code, description }, true);
+	const err = new Error(description || String(code));
+	err.xyExit = true;
+	throw err;
 }
 
 // Read and parse the job payload from STDIN.
@@ -44,30 +53,53 @@ function parseNumber(value, fallback) {
 	return Number.isFinite(num) ? num : fallback;
 }
 
-function buildInput(params) {
-	const input = params.args || {};
+function normalizePath(value) {
+	return String(value || "")
+		.replace(/\\/g, "/")
+		.replace(/^\.\/+/, "");
+}
+
+function cloneArgs(value) {
+	if (!value) return {};
+	if (typeof value === "string") {
+		const raw = value.trim();
+		if (!raw) return {};
+		try {
+			return JSON.parse(raw);
+		}
+		catch (err) {
+			fail("params", `Failed to parse Custom JSON: ${err.message}`);
+		}
+	}
+	if (typeof value !== "object") return {};
+	if (typeof structuredClone === "function") return structuredClone(value);
+	return JSON.parse(JSON.stringify(value));
+}
+
+function buildInput(params, tool) {
+	const input = cloneArgs(params.args);
 
 	if (params.prompt) input.prompt = String(params.prompt);
-	if (params.negative_prompt) input.negative_prompt = String(params.negative_prompt);
 
-	const width = parseNumber(params.width, undefined);
-	const height = parseNumber(params.height, undefined);
-	if (Number.isFinite(width)) input.width = Math.round(width);
-	if (Number.isFinite(height)) input.height = Math.round(height);
+	if (tool === "image") {
+		const width = parseNumber(params.width, undefined);
+		const height = parseNumber(params.height, undefined);
+		if (Number.isFinite(width)) input.width = Math.round(width);
+		if (Number.isFinite(height)) input.height = Math.round(height);
 
-	if (params.aspect_ratio) input.aspect_ratio = String(params.aspect_ratio);
+		const numOutputs = parseNumber(params.num_outputs, undefined);
+		if (Number.isFinite(numOutputs)) input.num_outputs = Math.round(numOutputs);
 
-	const numOutputs = parseNumber(params.num_outputs, undefined);
-	if (Number.isFinite(numOutputs)) input.num_outputs = Math.round(numOutputs);
+		const seed = parseNumber(params.seed, undefined);
+		if (Number.isFinite(seed)) input.seed = Math.round(seed);
+	}
+	else if (tool === "video" || tool === "audio") {
+		const duration = parseNumber(params.duration, undefined);
+		if (Number.isFinite(duration)) input.duration = duration;
 
-	const seed = parseNumber(params.seed, undefined);
-	if (Number.isFinite(seed)) input.seed = Math.round(seed);
-
-	const guidance = parseNumber(params.guidance, undefined);
-	if (Number.isFinite(guidance)) input.guidance = guidance;
-
-	const steps = parseNumber(params.steps, undefined);
-	if (Number.isFinite(steps)) input.steps = Math.round(steps);
+		const seed = parseNumber(params.seed, undefined);
+		if (Number.isFinite(seed)) input.seed = Math.round(seed);
+	}
 
 	return input;
 }
@@ -101,7 +133,21 @@ function extensionFromContentType(contentType) {
 		"image/jpeg": "jpg",
 		"image/jpg": "jpg",
 		"image/webp": "webp",
-		"image/gif": "gif"
+		"image/gif": "gif",
+		"image/tiff": "tif",
+		"video/mp4": "mp4",
+		"video/webm": "webm",
+		"video/quicktime": "mov",
+		"video/x-matroska": "mkv",
+		"audio/mpeg": "mp3",
+		"audio/mp3": "mp3",
+		"audio/wav": "wav",
+		"audio/x-wav": "wav",
+		"audio/flac": "flac",
+		"audio/ogg": "ogg",
+		"audio/webm": "webm",
+		"audio/aac": "aac",
+		"audio/mp4": "m4a"
 	};
 	return map[type] || "bin";
 }
@@ -126,6 +172,26 @@ function contentTypeFromFilename(filename) {
 		case "tif":
 		case "tiff":
 			return "image/tiff";
+		case "mp4":
+			return "video/mp4";
+		case "mov":
+			return "video/quicktime";
+		case "webm":
+			return "video/webm";
+		case "mkv":
+			return "video/x-matroska";
+		case "mp3":
+			return "audio/mpeg";
+		case "wav":
+			return "audio/wav";
+		case "flac":
+			return "audio/flac";
+		case "ogg":
+			return "audio/ogg";
+		case "aac":
+			return "audio/aac";
+		case "m4a":
+			return "audio/mp4";
 		case "bmp":
 			return "image/bmp";
 		default:
@@ -179,6 +245,32 @@ function resolveUploadedFileUrl(payload) {
 	return "";
 }
 
+async function matchInputFiles(pattern, inputFiles) {
+	if (!pattern) return [];
+	const normalizedPattern = normalizePath(pattern);
+	const patterns = normalizedPattern.includes("/")
+		? [normalizedPattern]
+		: [normalizedPattern, `**/${normalizedPattern}`];
+
+	const matches = new Set();
+	for (const globPattern of patterns) {
+		const results = await glob(globPattern, { nodir: true });
+		if (Array.isArray(results)) {
+			for (const result of results) {
+				matches.add(normalizePath(result));
+			}
+		}
+		else if (results && results[Symbol.asyncIterator]) {
+			for await (const result of results) {
+				matches.add(normalizePath(result));
+			}
+		}
+	}
+
+	if (!matches.size) return [];
+	return inputFiles.filter((file) => matches.has(file.normalized));
+}
+
 async function uploadFileToReplicate(filePath, apiKey) {
 	const filename = basename(filePath);
 	let buffer;
@@ -206,41 +298,60 @@ async function uploadFileToReplicate(filePath, apiKey) {
 	return url;
 }
 
-function toArray(value) {
-	if (Array.isArray(value)) return value;
-	if (value === undefined || value === null || value === "") return [];
-	return [value];
-}
+async function resolveFilesInArgs(value, context) {
+	if (typeof value === "string") {
+		const trimmed = value.trim();
+		if (!trimmed.startsWith("files:")) return value;
+		const pattern = trimmed.slice(6).trim();
+		if (!pattern) return [];
 
-function mergeImageInputs(input, imageUrls) {
-	if (!imageUrls.length) return;
+		const matches = await matchInputFiles(pattern, context.inputFiles);
+		if (!matches.length) return [];
 
-	if (Object.prototype.hasOwnProperty.call(input, "image_input")) {
-		input.image_input = toArray(input.image_input).concat(imageUrls);
-		return;
+		const wantsArray = /[*?\[]/.test(pattern);
+		const urls = [];
+		for (const match of matches) {
+			if (!context.uploadCache.has(match.filename)) {
+				const url = await uploadFileToReplicate(match.filename, context.apiKey);
+				context.uploadCache.set(match.filename, url);
+			}
+			urls.push(context.uploadCache.get(match.filename));
+		}
+		if (wantsArray) return urls;
+		return urls.length === 1 ? urls[0] : urls;
 	}
 
-	if (Object.prototype.hasOwnProperty.call(input, "image")) {
-		if (Array.isArray(input.image)) {
-			input.image = input.image.concat(imageUrls);
+	if (Array.isArray(value)) {
+		const resolved = [];
+		for (const item of value) {
+			const next = await resolveFilesInArgs(item, context);
+			if (Array.isArray(next)) {
+				if (next.length) resolved.push(...next);
+			}
+			else if (next !== undefined) {
+				resolved.push(next);
+			}
 		}
-		else if (!input.image && imageUrls.length === 1) {
-			input.image = imageUrls[0];
-		}
-		else {
-			input.image_input = imageUrls;
-		}
-		return;
+		return resolved;
 	}
 
-	input.image_input = imageUrls;
+	if (value && typeof value === "object") {
+		const out = Array.isArray(value) ? [] : {};
+		for (const [key, item] of Object.entries(value)) {
+			out[key] = await resolveFilesInArgs(item, context);
+		}
+		return out;
+	}
+
+	return value;
 }
 
 async function waitForCompletion(prediction, options) {
-	const { apiKey, pollIntervalMs, timeoutMs } = options;
+	const { tool, apiKey, pollIntervalMs, timeoutMs } = options;
 	const started = Date.now();
 	let lastProgress = 0;
 	let current = prediction;
+	let estWaitTimeMs = (tool == "video") ? 120_000 : ((tool == "audio") ? 15_000 : 30_000);
 
 	while (true) {
 		if (!current || !current.status) {
@@ -263,7 +374,7 @@ async function waitForCompletion(prediction, options) {
 			fail("timeout", `Prediction timed out after ${Math.round(timeoutMs / 1000)}s.`);
 		}
 
-		const progress = Math.min(0.9, 0.1 + (elapsed / 30_000) * 0.8);
+		const progress = Math.min(0.9, 0.1 + (elapsed / estWaitTimeMs) * 0.8);
 		if (progress - lastProgress >= 0.05) {
 			writeJson({ xy: 1, progress });
 			lastProgress = progress;
@@ -324,9 +435,10 @@ async function downloadFile(url, apiKey, filenamePrefix, index) {
 	return filename;
 }
 
-(async () => {
+async function main() {
 	const job = await readJob();
 	const params = job.params || {};
+	const tool = params.tool ? String(params.tool) : "image";
 
 	const apiKey = process.env.REPLICATE_API_TOKEN;
 	if (!apiKey) fail("env", "Missing Replicate API token. Set REPLICATE_API_TOKEN.");
@@ -342,22 +454,25 @@ async function downloadFile(url, apiKey, filenamePrefix, index) {
 	const timeoutMs = Math.max(1000, parseNumber(params.timeout_ms, DEFAULT_TIMEOUT_MS));
 	const cancelAfter = params.cancel_after ? String(params.cancel_after).trim() : "";
 
-	const input = buildInput({ ...params, prompt });
+	const input = buildInput({ ...params, prompt }, tool);
 	const inputFiles = Array.isArray(job.input?.files) ? job.input.files : [];
+	const normalizedFiles = inputFiles
+		.filter((entry) => entry && entry.filename)
+		.map((entry) => ({
+			filename: String(entry.filename),
+			normalized: normalizePath(entry.filename)
+		}));
 
 	writeJson({ xy: 1, progress: 0.05 });
 
-	if (inputFiles.length) {
-		const imageUrls = [];
-		for (let i = 0; i < inputFiles.length; i++) {
-			const entry = inputFiles[i];
-			if (!entry || !entry.filename) continue;
-			const filePath = String(entry.filename);
-			const url = await uploadFileToReplicate(filePath, apiKey);
-			imageUrls.push(url);
-		}
-		mergeImageInputs(input, imageUrls);
-	}
+	const context = {
+		apiKey,
+		inputFiles: normalizedFiles,
+		uploadCache: new Map()
+	};
+	const resolvedInput = await resolveFilesInArgs(input, context);
+	Object.keys(input).forEach((key) => delete input[key]);
+	Object.assign(input, resolvedInput);
 
 	const headers = {
 		Authorization: `Bearer ${apiKey}`,
@@ -375,6 +490,7 @@ async function downloadFile(url, apiKey, filenamePrefix, index) {
 	writeJson({ xy: 1, progress: 0.1 });
 
 	const finalPrediction = await waitForCompletion(prediction, {
+		tool,
 		apiKey,
 		pollIntervalMs,
 		timeoutMs
@@ -407,4 +523,9 @@ async function downloadFile(url, apiKey, filenamePrefix, index) {
 		},
 		files
 	}, true);
-})();
+}
+
+main().catch((err) => {
+	if (didExit || err?.xyExit) return;
+	writeJson({ xy: 1, code: "exception", description: err?.message || String(err) }, true);
+});

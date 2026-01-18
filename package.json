@@ -2,7 +2,7 @@
 	"name": "xyplug-replicate",
 	"version": "1.0.0",
 	"private": true,
-	"description": "Replicate image generation plugin for the xyOps workflow automation system.",
+	"description": "Replicate media generation plugin for the xyOps workflow automation system.",
 	"author": "Joseph Huckaby <jhuckaby@pixlcore.com>",
 	"homepage": "https://github.com/pixlcore/xyplug-replicate",
 	"license": "MIT",
@@ -21,6 +21,8 @@
 		"xyops",
 		"replicate",
 		"image",
+		"video",
+		"audio",
 		"ai"
 	],
 	"dependencies": {}

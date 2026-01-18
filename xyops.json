@@ -7,91 +7,245 @@
 			"type": "plugin",
 			"data": {
 				"id": "pmr8d6k1replicate",
-				"title": "Replicate Image Generation",
+				"title": "Replicate AI Generation",
 				"enabled": true,
 				"type": "event",
 				"command": "npx -y github:pixlcore/xyplug-replicate#v1.0.0",
 				"script": "",
 				"kill": "parent",
-				"notes": "Generate images using Replicate.com and attach the files to the job output.",
-				"icon": "image-outline",
+				"notes": "Generate images, video, or audio using Replicate.com and attach the files to the job output.",
+				"icon": "movie-outline",
 				"params": [
 					{
-						"id": "model",
-						"title": "Replicate Model",
-						"type": "text",
-						"caption": "Provider and Model ID (e.g. `google/nano-banana-pro`).",
-						"locked": false,
-						"value": "google/nano-banana-pro",
-						"variant": "text",
-						"required": true
-					},
-					{
-						"id": "prompt",
-						"title": "Prompt",
-						"type": "textarea",
-						"caption": "Prompt text to send to the model.",
-						"locked": false,
-						"value": "",
-						"required": true
-					},
-					{
-						"id": "width",
-						"title": "Width",
-						"type": "text",
-						"caption": "Optional output width in pixels (model dependent).",
-						"locked": false,
-						"value": 1024,
-						"variant": "number",
-						"required": false
-					},
-					{
-						"id": "height",
-						"title": "Height",
-						"type": "text",
-						"caption": "Optional output height in pixels (model dependent).",
-						"locked": false,
-						"value": 1024,
-						"variant": "number",
-						"required": false
-					},
-					{
-						"id": "num_outputs",
-						"title": "Num Outputs",
-						"type": "text",
-						"caption": "How many images to generate (model dependent).",
-						"locked": false,
-						"value": 1,
-						"variant": "number",
-						"required": false
-					},
-					{
-						"id": "seed",
-						"title": "Seed",
-						"type": "text",
-						"caption": "Optional seed for reproducible results.",
-						"locked": false,
-						"value": "",
-						"required": false
-					},
-					{
-						"id": "args",
-						"title": "Custom JSON",
-						"type": "json",
-						"caption": "Optional JSON object merged into the model input (for model-specific tuning).",
-						"locked": false,
-						"value": {},
-						"required": false
-					},
-					{
-						"id": "timeout_ms",
-						"title": "Timeout (ms)",
-						"type": "text",
-						"caption": "Overall timeout for the prediction.",
-						"locked": false,
-						"value": 300000,
-						"variant": "number",
-						"required": false
+						"id": "tool",
+						"title": "Tool Select",
+						"type": "toolset",
+						"caption": "",
+						"data": {
+							"tools": [
+								{
+									"id": "image",
+									"title": "Generate Images",
+									"description": "Generate one or more images from a prompt.",
+									"fields": [
+										{
+											"id": "model",
+											"title": "Replicate Model",
+											"type": "text",
+											"caption": "Provider and Model ID (e.g. `google/nano-banana-pro`).",
+											"locked": false,
+											"value": "google/nano-banana-pro",
+											"variant": "text",
+											"required": true
+										},
+										{
+											"id": "prompt",
+											"title": "Prompt",
+											"type": "textarea",
+											"caption": "Prompt text to send to the model.",
+											"locked": false,
+											"value": "A corgi riding a skateboard.",
+											"required": true
+										},
+										{
+											"id": "width",
+											"title": "Width",
+											"type": "text",
+											"caption": "Optional output width in pixels (model dependent).",
+											"locked": false,
+											"value": 1024,
+											"variant": "number",
+											"required": false
+										},
+										{
+											"id": "height",
+											"title": "Height",
+											"type": "text",
+											"caption": "Optional output height in pixels (model dependent).",
+											"locked": false,
+											"value": 1024,
+											"variant": "number",
+											"required": false
+										},
+										{
+											"id": "num_outputs",
+											"title": "Num Outputs",
+											"type": "text",
+											"caption": "How many images to generate (model dependent).",
+											"locked": false,
+											"value": 1,
+											"variant": "number",
+											"required": false
+										},
+										{
+											"id": "seed",
+											"title": "Seed",
+											"type": "text",
+											"caption": "Optional seed for reproducible results.",
+											"locked": false,
+											"value": "",
+											"required": false
+										},
+										{
+											"id": "args",
+											"title": "Custom JSON",
+											"type": "json",
+											"caption": "Optional JSON object merged into the model input (for model-specific tuning).",
+											"locked": false,
+											"value": {
+												"image_input": "files:*"
+											},
+											"required": false
+										},
+										{
+											"id": "timeout_ms",
+											"title": "Timeout (ms)",
+											"type": "text",
+											"caption": "Overall timeout for the prediction.",
+											"locked": false,
+											"value": 300000,
+											"variant": "number",
+											"required": false
+										}
+									]
+								},
+								{
+									"id": "video",
+									"title": "Generate Video",
+									"description": "Generate video from a prompt, optionally using reference images.",
+									"fields": [
+										{
+											"id": "model",
+											"title": "Replicate Model",
+											"type": "text",
+											"caption": "Provider and Model ID (e.g. `google/veo-3.1`).",
+											"locked": false,
+											"value": "google/veo-3.1",
+											"variant": "text",
+											"required": true
+										},
+										{
+											"id": "prompt",
+											"title": "Prompt",
+											"type": "textarea",
+											"caption": "Prompt text to send to the model.",
+											"locked": false,
+											"value": "A tiger riding on a pogo-stick.",
+											"required": true
+										},
+										{
+											"id": "duration",
+											"title": "Duration",
+											"type": "text",
+											"caption": "Duration in seconds (model dependent).",
+											"locked": false,
+											"value": 8,
+											"variant": "number",
+											"required": false
+										},
+										{
+											"id": "seed",
+											"title": "Seed",
+											"type": "text",
+											"caption": "Optional seed for reproducible results.",
+											"locked": false,
+											"value": 0,
+											"variant": "number",
+											"required": false
+										},
+										{
+											"id": "args",
+											"title": "Custom JSON",
+											"type": "json",
+											"caption": "Optional JSON object merged into the model input (for model-specific tuning).",
+											"locked": false,
+											"value": {
+												"aspect_ratio": "16:9",
+												"resolution": "1080p",
+												"generate_audio": true,
+												"reference_images": "files:*"
+											},
+											"required": false
+										},
+										{
+											"id": "timeout_ms",
+											"title": "Timeout (ms)",
+											"type": "text",
+											"caption": "Overall timeout for the prediction.",
+											"locked": false,
+											"value": 300000,
+											"variant": "number",
+											"required": false
+										}
+									]
+								},
+								{
+									"id": "audio",
+									"title": "Generate Audio",
+									"description": "Generate audio from a prompt.",
+									"fields": [
+										{
+											"id": "model",
+											"title": "Replicate Model",
+											"type": "text",
+											"caption": "Provider and Model ID (e.g. `stability-ai/stable-audio-2.5`).",
+											"locked": false,
+											"value": "stability-ai/stable-audio-2.5",
+											"variant": "text",
+											"required": true
+										},
+										{
+											"id": "prompt",
+											"title": "Prompt",
+											"type": "textarea",
+											"caption": "Prompt text to send to the model.",
+											"locked": false,
+											"value": "8-bit chiptune music, NES-style.",
+											"required": true
+										},
+										{
+											"id": "duration",
+											"title": "Duration",
+											"type": "text",
+											"caption": "Duration in seconds (model dependent).",
+											"locked": false,
+											"value": 30,
+											"variant": "number",
+											"required": false
+										},
+										{
+											"id": "seed",
+											"title": "Seed",
+											"type": "text",
+											"caption": "Optional seed for reproducible results.",
+											"locked": false,
+											"value": 0,
+											"variant": "number",
+											"required": false
+										},
+										{
+											"id": "args",
+											"title": "Custom JSON",
+											"type": "json",
+											"caption": "Optional JSON object merged into the model input (for model-specific tuning).",
+											"locked": false,
+											"value": {},
+											"required": false
+										},
+										{
+											"id": "timeout_ms",
+											"title": "Timeout (ms)",
+											"type": "text",
+											"caption": "Overall timeout for the prediction.",
+											"locked": false,
+											"value": 300000,
+											"variant": "number",
+											"required": false
+										}
+									]
+								}
+							]
+						}
 					}
 				]
 			}

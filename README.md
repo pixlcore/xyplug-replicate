@@ -26,7 +26,7 @@ The plugin uses a **Tool Select** menu to switch between three modes: **Generate
 	- `google/nano-banana-pro`
 	- `owner/model:version_id`
 	- `version_id`
-- **Prompt**: Text prompt for the image.
+- **Prompt**: Optional text prompt for the image.
 - **Width / Height**: Optional output size in pixels (if supported by the model).
 - **Num Outputs**: Optional number of images to generate.
 - **Seed**: Optional seed for reproducible results.
@@ -38,7 +38,7 @@ Default Custom JSON includes `"image_input": "files:*"` so any input files passe
 ### Generate Video
 
 - **Replicate Model**: Default `google/veo-3.1`.
-- **Prompt**: Text prompt for the video.
+- **Prompt**: Optional text prompt for the video.
 - **Duration**: Duration in seconds (model dependent).
 - **Seed**: Optional seed for reproducible results.
 - **Custom JSON**: Optional JSON object merged into the model input (pre-filled with Veo defaults and file-mapping placeholders).
@@ -47,7 +47,7 @@ Default Custom JSON includes `"image_input": "files:*"` so any input files passe
 ### Generate Audio
 
 - **Replicate Model**: Default `stability-ai/stable-audio-2.5`.
-- **Prompt**: Text prompt for the audio.
+- **Prompt**: Optional text prompt for the audio.
 - **Duration**: Duration in seconds (model dependent).
 - **Seed**: Optional seed for reproducible results.
 - **Custom JSON**: Optional JSON object merged into the model input.

@@ -10,7 +10,7 @@
 				"title": "Replicate AI",
 				"enabled": true,
 				"type": "event",
-				"command": "npx -y @pixlcore/xyplug-replicate@1.0.2",
+				"command": "npx -y @pixlcore/xyplug-replicate@1.0.3",
 				"script": "",
 				"kill": "parent",
 				"notes": "Generate images, video, or audio using Replicate.com and attach the files to the job output.",
@@ -42,10 +42,10 @@
 											"id": "prompt",
 											"title": "Prompt",
 											"type": "textarea",
-											"caption": "Prompt text to send to the model.",
+											"caption": "Optional prompt text to send to the model.",
 											"locked": false,
 											"value": "A corgi riding a skateboard.",
-											"required": true
+											"required": false
 										},
 										{
 											"id": "width",
@@ -128,10 +128,10 @@
 											"id": "prompt",
 											"title": "Prompt",
 											"type": "textarea",
-											"caption": "Prompt text to send to the model.",
+											"caption": "Optional prompt text to send to the model.",
 											"locked": false,
 											"value": "A tiger riding on a pogo-stick.",
-											"required": true
+											"required": false
 										},
 										{
 											"id": "duration",
@@ -198,10 +198,10 @@
 											"id": "prompt",
 											"title": "Prompt",
 											"type": "textarea",
-											"caption": "Prompt text to send to the model.",
+											"caption": "Optional prompt text to send to the model.",
 											"locked": false,
 											"value": "8-bit chiptune music, NES-style.",
-											"required": true
+											"required": false
 										},
 										{
 											"id": "duration",

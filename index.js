@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // xyOps Replicate media generation plugin
-// Sends prompt + inputs to Replicate, polls for completion, and downloads output files.
+// Sends optional prompt + inputs to Replicate, polls for completion, and downloads output files.
 
 import { glob, readFile, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
@@ -450,7 +450,6 @@ async function main() {
 	if (!model) fail("params", "Required parameter 'model' was not provided.");
 
 	const prompt = String(params.prompt || "").trim();
-	if (!prompt) fail("params", "Required parameter 'prompt' was not provided.");
 
 	const waitSeconds = Math.min(60, Math.max(1, parseNumber(params.wait_seconds, DEFAULT_WAIT_SECONDS)));
 	const pollIntervalMs = Math.max(250, parseNumber(params.poll_interval_ms, DEFAULT_POLL_INTERVAL_MS));

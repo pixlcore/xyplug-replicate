@@ -6,7 +6,7 @@
 // High-level flow:
 // 1. Read the xyOps job JSON from STDIN.
 // 2. Build the Replicate "input" payload from plugin params.
-// 3. Resolve any special "files:..." placeholders by uploading local job files first.
+// 3. Resolve any special "file:..." / "files:..." placeholders by uploading local job files first.
 // 4. Create a Replicate prediction and wait for it to finish.
 // 5. Download the generated media into the current working directory.
 // 6. Return an XYWP-compatible JSON response on STDOUT.
@@ -282,7 +282,7 @@ function resolveUploadedFileUrl(payload) {
 	return "";
 }
 
-// Match an incoming "files:..." glob against the job's attached input files.
+// Match an incoming "file:..." or "files:..." glob against the job's attached input files.
 // We only return files xyOps told us about, which avoids accidentally scooping up
 // unrelated files in the temporary working directory.
 async function matchInputFiles(pattern, inputFiles) {
@@ -341,33 +341,36 @@ async function uploadFileToReplicate(filePath, apiKey) {
 }
 
 // Recursively walk the Custom JSON object and replace any string beginning with
-// "files:" with uploaded Replicate file URLs.
+// "file:" or "files:" with uploaded Replicate file URLs.
 //
 // Examples:
 // - "files:*.png" becomes an array of uploaded URLs.
-// - "files:cover.jpg" becomes a single URL when exactly one file matches.
-// - no matches becomes [] by design, per plugin requirements.
+// - "files:cover.jpg" also becomes an array, even if only one file matches.
+// - "file:*.png" becomes one uploaded URL string using the first match only.
+// - "file:cover.jpg" becomes one uploaded URL string.
+// - no matches become [] for "files:" and "" for "file:".
 async function resolveFilesInArgs(value, context) {
 	if (typeof value === "string") {
 		const trimmed = value.trim();
-		if (!trimmed.startsWith("files:")) return value;
-		const pattern = trimmed.slice(6).trim();
-		if (!pattern) return [];
+		const prefix = trimmed.startsWith("files:") ? "files:" : (trimmed.startsWith("file:") ? "file:" : "");
+		if (!prefix) return value;
+		const wantsArray = (prefix === "files:");
+		const pattern = trimmed.slice(prefix.length).trim();
+		if (!pattern) return wantsArray ? [] : "";
 
 		const matches = await matchInputFiles(pattern, context.inputFiles);
-		if (!matches.length) return [];
+		if (!matches.length) return wantsArray ? [] : "";
 
-		const wantsArray = /[*?\[]/.test(pattern);
+		const selectedMatches = wantsArray ? matches : [matches[0]];
 		const urls = [];
-		for (const match of matches) {
+		for (const match of selectedMatches) {
 			if (!context.uploadCache.has(match.filename)) {
 				const url = await uploadFileToReplicate(match.filename, context.apiKey);
 				context.uploadCache.set(match.filename, url);
 			}
 			urls.push(context.uploadCache.get(match.filename));
 		}
-		if (wantsArray) return urls;
-		return urls.length === 1 ? urls[0] : urls;
+		return wantsArray ? urls : (urls[0] || "");
 	}
 
 	if (Array.isArray(value)) {
@@ -542,7 +545,8 @@ async function main() {
 		uploadCache: new Map()
 	};
 
-	// Replace any "files:..." placeholders in the input with uploaded Replicate URLs.
+	// Replace any "file:..." / "files:..." placeholders in the input with uploaded
+	// Replicate URLs.
 	// The upload cache prevents multiple uploads of the same source file if it is
 	// referenced more than once in Custom JSON.
 	const resolvedInput = await resolveFilesInArgs(input, context);

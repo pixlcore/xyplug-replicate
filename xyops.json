@@ -10,7 +10,7 @@
 				"title": "Replicate AI",
 				"enabled": true,
 				"type": "event",
-				"command": "npx -y @pixlcore/xyplug-replicate@1.0.3",
+				"command": "npx -y @pixlcore/xyplug-replicate@1.0.4",
 				"script": "",
 				"kill": "parent",
 				"notes": "Generate images, video, or audio using Replicate.com and attach the files to the job output.",
@@ -90,7 +90,7 @@
 											"id": "args",
 											"title": "Custom JSON",
 											"type": "json",
-											"caption": "Optional JSON object merged into the model input (for model-specific tuning).",
+											"caption": "Optional JSON object merged into the model input (for model-specific tuning). Use `files:` for arrays of uploaded file URLs, or `file:` for a single uploaded file URL.",
 											"locked": false,
 											"value": {
 												"image_input": "files:*"
@@ -157,7 +157,7 @@
 											"id": "args",
 											"title": "Custom JSON",
 											"type": "json",
-											"caption": "Optional JSON object merged into the model input (for model-specific tuning).",
+											"caption": "Optional JSON object merged into the model input (for model-specific tuning). Use `files:` for arrays of uploaded file URLs, or `file:` for a single uploaded file URL.",
 											"locked": false,
 											"value": {
 												"aspect_ratio": "16:9",
@@ -227,7 +227,7 @@
 											"id": "args",
 											"title": "Custom JSON",
 											"type": "json",
-											"caption": "Optional JSON object merged into the model input (for model-specific tuning).",
+											"caption": "Optional JSON object merged into the model input (for model-specific tuning). Use `files:` for arrays of uploaded file URLs, or `file:` for a single uploaded file URL.",
 											"locked": false,
 											"value": {},
 											"required": false

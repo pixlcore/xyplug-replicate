@@ -55,14 +55,18 @@ Default Custom JSON includes `"image_input": "files:*"` so any input files passe
 
 ### File Inputs via Custom JSON
 
-Any Custom JSON value that starts with `files:` is treated as a glob against the job input files. The plugin uploads matching files to Replicate and replaces the value with the resulting URL(s). If no files match, the value becomes an empty array.
+Any Custom JSON value that starts with `files:` or `file:` is treated as a glob against the job input files.
+
+- `files:` returns an array of uploaded URLs, even if only one file matches.
+- `file:` returns a single uploaded URL string using the first matching file.
+- If no files match, `files:` becomes `[]` and `file:` becomes an empty string.
 
 Example (video reference images):
 
 ```json
 {
 	"reference_images": "files:*.png",
-	"image": "files:first-frame.jpg",
+	"image": "file:first-frame.jpg",
 	"last_frame": ""
 }
 ```

@@ -2,16 +2,30 @@
 
 // xyOps Replicate media generation plugin
 // Sends optional prompt + inputs to Replicate, polls for completion, and downloads output files.
+//
+// High-level flow:
+// 1. Read the xyOps job JSON from STDIN.
+// 2. Build the Replicate "input" payload from plugin params.
+// 3. Resolve any special "files:..." placeholders by uploading local job files first.
+// 4. Create a Replicate prediction and wait for it to finish.
+// 5. Download the generated media into the current working directory.
+// 6. Return an XYWP-compatible JSON response on STDOUT.
 
 import { glob, readFile, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+// Replicate REST API root.
 const API_BASE = "https://api.replicate.com/v1";
+
+// Reasonable defaults for plugin behavior.  Some of these can be overridden
+// by incoming params, but we keep safe fallbacks here.
 const DEFAULT_WAIT_SECONDS = 1;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 const DEFAULT_TIMEOUT_MS = 300000;
 
+// We guard all final writes/exits with this flag so we never emit two terminal
+// responses to xyOps, which would make the job state ambiguous.
 let didExit = false;
 
 // Emit an XYWP message. If final, flush and exit.
@@ -27,6 +41,8 @@ function writeJson(payload, exit = false) {
 
 // Emit an error response and exit.
 function fail(code, description) {
+	// Tell xyOps about the failure first, then throw a tagged Error so our async
+	// call stack unwinds immediately without sending a second response later.
 	writeJson({ xy: 1, code, description }, true);
 	const err = new Error(description || String(code));
 	err.xyExit = true;
@@ -47,18 +63,24 @@ async function readJob() {
 	}
 }
 
+// Parse a numeric param from xyOps.  Blank / missing / invalid values fall back
+// to the provided default so optional params stay easy to work with.
 function parseNumber(value, fallback) {
 	if (value === undefined || value === null || value === "") return fallback;
 	const num = Number(value);
 	return Number.isFinite(num) ? num : fallback;
 }
 
+// Normalize file paths for matching.  xyOps may hand us file names from different
+// sources, so we force forward slashes and remove any leading "./".
 function normalizePath(value) {
 	return String(value || "")
 		.replace(/\\/g, "/")
 		.replace(/^\.\/+/, "");
 }
 
+// The Custom JSON / args field may arrive as either a JS object or a JSON string.
+// This helper turns it into a safely cloned plain object we can mutate freely.
 function cloneArgs(value) {
 	if (!value) return {};
 	if (typeof value === "string") {
@@ -76,12 +98,16 @@ function cloneArgs(value) {
 	return JSON.parse(JSON.stringify(value));
 }
 
+// Build the Replicate input object by starting with Custom JSON and then layering
+// in top-level xyOps params.  Tool-specific params differ for image vs video/audio.
 function buildInput(params, tool) {
 	const input = cloneArgs(params.args);
 
+	// Prompt is shared across all media types.
 	if (params.prompt) input.prompt = String(params.prompt);
 
 	if (tool === "image") {
+		// Image models commonly expose size and image count controls.
 		const width = parseNumber(params.width, undefined);
 		const height = parseNumber(params.height, undefined);
 		if (Number.isFinite(width)) input.width = Math.round(width);
@@ -94,6 +120,7 @@ function buildInput(params, tool) {
 		if (Number.isFinite(seed)) input.seed = Math.round(seed);
 	}
 	else if (tool === "video" || tool === "audio") {
+		// Video and audio models both tend to expose duration + seed.
 		const duration = parseNumber(params.duration, undefined);
 		if (Number.isFinite(duration)) input.duration = duration;
 
@@ -104,10 +131,13 @@ function buildInput(params, tool) {
 	return input;
 }
 
+// Replicate outputs can contain normal HTTPS URLs or inline data URLs.
 function looksLikeUrl(value) {
 	return typeof value === "string" && /^(https?:\/\/|data:)/i.test(value.trim());
 }
 
+// Walk a nested Replicate output payload and pull out every URL-like value.
+// Different models return slightly different JSON shapes, so this stays generic.
 function collectUrls(value, urls = []) {
 	if (looksLikeUrl(value)) {
 		urls.push(value.trim());
@@ -123,6 +153,7 @@ function collectUrls(value, urls = []) {
 	return urls;
 }
 
+// Convert HTTP content-types into file extensions when downloading outputs.
 function extensionFromContentType(contentType) {
 	const type = String(contentType || "")
 		.toLowerCase()
@@ -152,11 +183,13 @@ function extensionFromContentType(contentType) {
 	return map[type] || "bin";
 }
 
+// Fallback for cases where the server doesn't send a useful content-type.
 function extensionFromUrl(url) {
 	const match = String(url).match(/\.([a-z0-9]{2,5})(?:\?|#|$)/i);
 	return match ? match[1].toLowerCase() : "bin";
 }
 
+// Replicate file uploads need a content-type.  We infer one from the local file name.
 function contentTypeFromFilename(filename) {
 	const ext = String(filename).toLowerCase().match(/\.([a-z0-9]+)$/);
 	switch (ext ? ext[1] : "") {
@@ -199,6 +232,8 @@ function contentTypeFromFilename(filename) {
 	}
 }
 
+// Shared helper for all Replicate JSON endpoints.  It handles network failures,
+// JSON parsing, and consistent xyOps error reporting.
 async function requestJson(url, options) {
 	let response;
 	try {
@@ -227,6 +262,8 @@ async function requestJson(url, options) {
 	return payload || {};
 }
 
+// Replicate file upload responses have varied a bit over time, so we check a few
+// likely locations for the resulting downloadable URL.
 function resolveUploadedFileUrl(payload) {
 	const candidates = [
 		payload?.urls?.download,
@@ -245,6 +282,9 @@ function resolveUploadedFileUrl(payload) {
 	return "";
 }
 
+// Match an incoming "files:..." glob against the job's attached input files.
+// We only return files xyOps told us about, which avoids accidentally scooping up
+// unrelated files in the temporary working directory.
 async function matchInputFiles(pattern, inputFiles) {
 	if (!pattern) return [];
 	const normalizedPattern = normalizePath(pattern);
@@ -271,6 +311,7 @@ async function matchInputFiles(pattern, inputFiles) {
 	return inputFiles.filter((file) => matches.has(file.normalized));
 }
 
+// Upload a single local job file to Replicate and return the URL they give us back.
 async function uploadFileToReplicate(filePath, apiKey) {
 	const filename = basename(filePath);
 	let buffer;
@@ -299,6 +340,13 @@ async function uploadFileToReplicate(filePath, apiKey) {
 	return url;
 }
 
+// Recursively walk the Custom JSON object and replace any string beginning with
+// "files:" with uploaded Replicate file URLs.
+//
+// Examples:
+// - "files:*.png" becomes an array of uploaded URLs.
+// - "files:cover.jpg" becomes a single URL when exactly one file matches.
+// - no matches becomes [] by design, per plugin requirements.
 async function resolveFilesInArgs(value, context) {
 	if (typeof value === "string") {
 		const trimmed = value.trim();
@@ -347,11 +395,17 @@ async function resolveFilesInArgs(value, context) {
 	return value;
 }
 
+// Replicate supports synchronous waiting via the Prefer header, but long-running
+// jobs still often come back as "starting" or "processing".  This polling loop
+// handles the rest until the prediction reaches a terminal state.
 async function waitForCompletion(prediction, options) {
 	const { tool, apiKey, pollIntervalMs, timeoutMs } = options;
 	const started = Date.now();
 	let lastProgress = 0;
 	let current = prediction;
+
+	// Used only for progress updates back to xyOps.  This does not affect actual
+	// timeout handling, it just helps the UI show forward motion.
 	let estWaitTimeMs = (tool == "video") ? 120_000 : ((tool == "audio") ? 15_000 : 30_000);
 
 	while (true) {
@@ -383,6 +437,8 @@ async function waitForCompletion(prediction, options) {
 
 		await delay(pollIntervalMs);
 
+		// Poll the status URL Replicate gave us, or fall back to the standard
+		// prediction endpoint if needed.
 		const pollUrl = current?.urls?.get || `${API_BASE}/predictions/${current.id}`;
 		current = await requestJson(pollUrl, {
 			method: "GET",
@@ -393,6 +449,8 @@ async function waitForCompletion(prediction, options) {
 	}
 }
 
+// Some Replicate models can return inline data URLs instead of hosted files.
+// When that happens, decode the payload and save it just like any other output.
 async function downloadDataUrl(url, filenamePrefix, index) {
 	const match = url.match(/^data:([^;,]+)?(;base64)?,(.*)$/i);
 	if (!match) fail("download", "Unsupported data URL format.");
@@ -406,6 +464,7 @@ async function downloadDataUrl(url, filenamePrefix, index) {
 	return filename;
 }
 
+// Download one generated media file and save it into the job's temp directory.
 async function downloadFile(url, apiKey, filenamePrefix, index) {
 	if (url.startsWith("data:")) return downloadDataUrl(url, filenamePrefix, index);
 
@@ -438,25 +497,34 @@ async function downloadFile(url, apiKey, filenamePrefix, index) {
 }
 
 async function main() {
+	// Read the incoming xyOps job envelope and pull out the plugin params.
 	const job = await readJob();
 	const params = job.params || {};
 	const tool = params.tool ? String(params.tool) : "image";
 	console.log("Starting up...");
 
+	// Replicate auth is supplied through the assigned Secret Vault env var.
 	const apiKey = process.env.REPLICATE_API_TOKEN;
 	if (!apiKey) fail("env", "Missing Replicate API token. Set REPLICATE_API_TOKEN.");
 
+	// In this plugin, "model" is whatever Replicate accepts in the version field.
 	const model = String(params.model || "").trim();
 	if (!model) fail("params", "Required parameter 'model' was not provided.");
 
 	const prompt = String(params.prompt || "").trim();
 
+	// Runtime tuning options.  These are mostly about request/polling behavior,
+	// not about model output itself.
 	const waitSeconds = Math.min(60, Math.max(1, parseNumber(params.wait_seconds, DEFAULT_WAIT_SECONDS)));
 	const pollIntervalMs = Math.max(250, parseNumber(params.poll_interval_ms, DEFAULT_POLL_INTERVAL_MS));
 	const timeoutMs = Math.max(1000, parseNumber(params.timeout_ms, DEFAULT_TIMEOUT_MS));
 	const cancelAfter = params.cancel_after ? String(params.cancel_after).trim() : "";
 
+	// Build the base Replicate input payload from the selected tool and params.
 	const input = buildInput({ ...params, prompt }, tool);
+
+	// xyOps passes input files in job.input.files.  We keep only the file names we
+	// need for matching and normalize them up front for easier glob resolution.
 	const inputFiles = Array.isArray(job.input?.files) ? job.input.files : [];
 	const normalizedFiles = inputFiles
 		.filter((entry) => entry && entry.filename)
@@ -465,6 +533,7 @@ async function main() {
 			normalized: normalizePath(entry.filename)
 		}));
 
+	// Let xyOps know the job started.
 	writeJson({ xy: 1, progress: 0.05 });
 
 	const context = {
@@ -472,10 +541,16 @@ async function main() {
 		inputFiles: normalizedFiles,
 		uploadCache: new Map()
 	};
+
+	// Replace any "files:..." placeholders in the input with uploaded Replicate URLs.
+	// The upload cache prevents multiple uploads of the same source file if it is
+	// referenced more than once in Custom JSON.
 	const resolvedInput = await resolveFilesInArgs(input, context);
 	Object.keys(input).forEach((key) => delete input[key]);
 	Object.assign(input, resolvedInput);
 
+	// Prefer asks Replicate to hold the HTTP connection open briefly before returning.
+	// This can skip some polling for fast models, while still working for long jobs.
 	const headers = {
 		Authorization: `Bearer ${apiKey}`,
 		"Content-Type": "application/json",
@@ -487,6 +562,8 @@ async function main() {
 	const prediction = await requestJson(`${API_BASE}/predictions`, {
 		method: "POST",
 		headers,
+		// Replicate accepts a "version" field here.  In practice this plugin passes
+		// through the user-entered model/version identifier as-is.
 		body: JSON.stringify({ version: model, input })
 	});
 
@@ -500,6 +577,8 @@ async function main() {
 		timeoutMs
 	});
 
+	// We support any media type as long as Replicate returns downloadable URLs
+	// somewhere inside the output payload.
 	const outputUrls = collectUrls(finalPrediction.output || []);
 	if (!outputUrls.length) {
 		fail("output", "Prediction succeeded but returned no output URLs.");
@@ -508,6 +587,8 @@ async function main() {
 	writeJson({ xy: 1, progress: 0.9 });
 	console.log("Downloading output files...");
 
+	// Generated files are written into the current working directory, which xyOps
+	// sets up as a temporary per-job workspace.
 	const filenamePrefix = `replicate-${finalPrediction.id}`;
 	const files = [];
 	for (let i = 0; i < outputUrls.length; i++) {
@@ -520,6 +601,7 @@ async function main() {
 		xy: 1,
 		code: 0,
 		data: {
+			// Return useful metadata for downstream workflow steps and debugging.
 			prediction_id: finalPrediction.id,
 			model: finalPrediction.model,
 			version: finalPrediction.version,
@@ -532,6 +614,7 @@ async function main() {
 }
 
 main().catch((err) => {
+	// If we already emitted a terminal XYWP response, there is nothing left to do.
 	if (didExit || err?.xyExit) return;
 	writeJson({ xy: 1, code: "exception", description: err?.message || String(err) }, true);
 });
